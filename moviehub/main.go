@@ -34,11 +34,14 @@ func main() {
 	h := &handler.Handler{Store: &store.Store{Pool: pool}, Tickets: tickets}
 
 	login := func(f http.HandlerFunc) http.HandlerFunc { return mw.RequireLogin(tickets, f) }
+	// admin = ต้องมีตั๋วและบทบาทเป็น admin (ตรวจตั๋วก่อนเสมอ ค่อยดูบทบาท สลับลำดับไม่ได้)
+	admin := func(f http.HandlerFunc) http.HandlerFunc { return login(mw.RequireRole("admin", f)) }
 
 	mux := http.NewServeMux()
 	// ประตูสาธารณะ
 	mux.HandleFunc("POST /api/auth/register", h.Register)
 	mux.HandleFunc("POST /api/auth/login", h.Login)
+	mux.HandleFunc("GET /api/genres", h.Genres)
 	mux.HandleFunc("GET /api/movies", h.SearchMovies)
 	mux.HandleFunc("GET /api/movies/{id}", h.GetMovie)
 	mux.HandleFunc("GET /api/movies/{id}/reviews", h.ListReviews)
@@ -49,8 +52,14 @@ func main() {
 	mux.HandleFunc("GET /api/me/wishlist", login(h.ListWishlist))
 	mux.HandleFunc("PUT /api/me/wishlist/{movieId}", login(h.PutWishlist))
 	mux.HandleFunc("DELETE /api/me/wishlist/{movieId}", login(h.DeleteWishlist))
-	// ต้องเป็นแอดมิน (สวมสองประตูซ้อนกัน)
-	mux.HandleFunc("GET /api/admin/members", login(mw.RequireRole("admin", h.AdminMembers)))
+	// ต้องเป็นแอดมิน (สวมสองประตูซ้อนกัน) ทุกเส้นทางใต้ /api/admin ผ่าน admin(...) ไม่มีข้อยกเว้น
+	mux.HandleFunc("GET /api/admin/stats", admin(h.AdminStats))
+	mux.HandleFunc("GET /api/admin/members", admin(h.AdminMembers))
+	mux.HandleFunc("PUT /api/admin/members/{id}/role", admin(h.AdminSetRole))
+	mux.HandleFunc("GET /api/admin/movies/{id}", admin(h.AdminGetMovie))
+	mux.HandleFunc("POST /api/admin/movies", admin(h.AdminCreateMovie))
+	mux.HandleFunc("PUT /api/admin/movies/{id}", admin(h.AdminUpdateMovie))
+	mux.HandleFunc("DELETE /api/admin/movies/{id}", admin(h.AdminDeleteMovie))
 
 	origins := strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",")
 	port := os.Getenv("PORT")

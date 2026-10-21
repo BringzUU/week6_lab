@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -11,11 +12,12 @@ import (
 var ErrEmailTaken = errors.New("email taken")
 
 type Member struct {
-	ID           int64  `json:"id"`
-	Email        string `json:"email"`
-	DisplayName  string `json:"displayName"`
-	Role         string `json:"role"`
-	PasswordHash string `json:"-"` // ไม่มีวันออกไปกับ JSON
+	ID           int64      `json:"id"`
+	Email        string     `json:"email"`
+	DisplayName  string     `json:"displayName"`
+	Role         string     `json:"role"`
+	CreatedAt    *time.Time `json:"createdAt,omitempty"` // มีเฉพาะตอน list ให้ admin ดู
+	PasswordHash string     `json:"-"`                   // ไม่มีวันออกไปกับ JSON
 }
 
 func (s *Store) CreateMember(ctx context.Context, email, hash, name string) (Member, error) {
@@ -54,9 +56,11 @@ func (s *Store) MemberByID(ctx context.Context, id int64) (Member, error) {
 	return m, err
 }
 
+// ListMembers รายชื่อสมาชิกทั้งหมดสำหรับ admin เรียงคนใหม่ก่อน
 func (s *Store) ListMembers(ctx context.Context) ([]Member, error) {
 	rows, err := s.Pool.Query(ctx,
-		`SELECT id, email, display_name, role FROM members ORDER BY id`)
+		`SELECT id, email, display_name, role, created_at
+         FROM members ORDER BY created_at DESC, id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -64,10 +68,24 @@ func (s *Store) ListMembers(ctx context.Context) ([]Member, error) {
 	out := []Member{}
 	for rows.Next() {
 		var m Member
-		if err := rows.Scan(&m.ID, &m.Email, &m.DisplayName, &m.Role); err != nil {
+		if err := rows.Scan(&m.ID, &m.Email, &m.DisplayName, &m.Role, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// UpdateMemberRole เปลี่ยนบทบาท (member <-> admin) ไม่พบคนตอบ ErrNotFound
+func (s *Store) UpdateMemberRole(ctx context.Context, id int64, role string) (Member, error) {
+	var m Member
+	err := s.Pool.QueryRow(ctx,
+		`UPDATE members SET role = $2, updated_at = now()
+         WHERE id = $1
+         RETURNING id, email, display_name, role, created_at`, id, role).
+		Scan(&m.ID, &m.Email, &m.DisplayName, &m.Role, &m.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Member{}, ErrNotFound
+	}
+	return m, err
 }
