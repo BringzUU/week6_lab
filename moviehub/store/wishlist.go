@@ -23,7 +23,7 @@ func (s *Store) ListWishlist(ctx context.Context, memberID int64) ([]WishlistIte
                   WHERE mg.movie_id = m.id AND mg.position = 0),
                 extract(year FROM m.release_date)::int,
                 round(m.vote_average, 1)::float8,
-                'https://image.tmdb.org/t/p/w500' || m.poster_path,
+                `+posterSQL+`,
                 w.note, w.added_at
          FROM wishlist_items w
          JOIN movies m ON m.id = w.movie_id
